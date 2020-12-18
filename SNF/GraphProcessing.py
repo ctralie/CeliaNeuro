@@ -65,15 +65,19 @@ def plot_simple_average(Ws):
     plt.title("Simple Average")
     plt.savefig("SimpleAverage.png", dpi=300, bbox_inches='tight')
 
-def do_healthy_fusion(Ks, do_plot = False):
-    """
-    Fuse healthy subjects
-    """
+def load_Ws():
     files = glob.glob("Normalized/Controls_for_reference_graph/*.mat")
     Ws = []
     for f in files:
         s = f.split("_")[-2].split("/")[-1]
         Ws.append(sio.loadmat(f)[s])
+    return Ws
+
+def do_healthy_fusion(Ks, do_plot = False):
+    """
+    Fuse healthy subjects
+    """
+    Ws = load_Ws()
     plot_simple_average(Ws)
     sio.savemat("SimpleAverage.mat", {"W":fused_score(Ws)})
     plt.figure(figsize=(8, 8))
@@ -112,7 +116,6 @@ def print_labels(labels):
             fout.write("\n\n")
         fout.close()
 
-
 def plot_labels(W, labels):
     Im_Disp = np.array(W)
     np.fill_diagonal(Im_Disp, 0)
@@ -134,10 +137,42 @@ def plot_labels(W, labels):
         plt.axis('off')
         plt.savefig("Clusters{}.png".format(i+1), bbox_inches='tight')
 
+def compare_thresholded_average():
+    Ws = load_Ws()
+    W = fused_score(Ws)
+    W2, Counts = avg_halfthresh(Ws)
+    plt.figure(figsize=(10, 10))
+    plt.subplot(221)
+    plt.imshow(W, cmap='magma_r')
+    plt.title("Simple Average")
+    plt.subplot(222)
+    plt.imshow(W2, cmap='magma_r')
+    plt.title("Thresholded Simple Average")
+    plt.subplot(223)
+    plt.imshow(Counts >= len(Ws)/2)
+    plt.title("Mask")
+    plt.subplot(224)
+    plt.imshow(W-W2)
+    plt.title("Difference")
+    plt.show()
+
 #normalize_by_atlas()
 fused = do_healthy_fusion([15]) #[3, 5, 10, 15, 20, 25]
 W = fused[15]
+#Ws = load_Ws()
+#W, Counts = avg_halfthresh(Ws)
+#W = fused_score(Ws)
+WThresh = np.array(W)
+np.fill_diagonal(WThresh, 0)
+np.fill_diagonal(WThresh, np.max(WThresh))
+sio.savemat("W.mat", {"W":WThresh})
 labels = spectral_cluster_w(W, 20)
-sio.savemat("SpectralLabels.mat", {"W":W})
+
+#sio.savemat("SpectralLabels.mat", {"labels":labels, "W":W})
 print_labels(labels)
 plot_labels(W, labels)
+
+labels = labels + 1
+labels = labels.T
+labels = labels[:, 1::]
+np.savetxt("labels.txt", labels, fmt="%i")

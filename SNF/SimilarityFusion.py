@@ -116,10 +116,27 @@ def get_S(W, K):
     return S
 
 def fused_score(Pts):
+    """
+    Perform an average of a bunch of affinity matrices
+    """
     FusedScores = np.zeros(Pts[0].shape)
     for Pt in Pts:
         FusedScores += Pt
     return FusedScores/len(Pts)
+
+def avg_halfthresh(Pts):
+    """
+    Perform an average of a bunch of affinity matrices, and
+    only keep the value if more than half of them are nonzero
+    """
+    FusedScores = np.zeros(Pts[0].shape)
+    Counts = np.zeros(Pts[0].shape)
+    for Pt in Pts:
+        FusedScores += Pt
+        Counts += (Pt > 0)
+    res = FusedScores/len(Pts)
+    res[Counts < len(Pts)/2] = 0
+    return res, Counts
 
 def snf_ws(Ws, K = 5, niters = 20, reg_diag = True, \
         do_animation = False, verbose_times = True):
