@@ -58,7 +58,7 @@ def do_regressions_feat(feat):
     Parameters
     ----------
     feat: string
-        Type of feature (either PD or WD)
+        Type of feature (either PD, WD, or BC)
     """
     plt.figure(figsize=(8, 4))
     patients = pd.read_csv("{}_patients.csv".format(feat))
@@ -117,7 +117,7 @@ def do_regressions_feat(feat):
             print(feat, label, var, Xv.shape[0], "subjects, ", Xv.shape[1], "indepvars")
             
             plt.clf()
-            ## Step 1: Do pcr regression
+            ## Do pcr regression
             pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())
             res = do_loo_regression(pcr, Xv, y)
             plt.subplot(121)
@@ -127,7 +127,7 @@ def do_regressions_feat(feat):
             plt.ylabel("Actual {}".format(var))
             plt.axis("equal")
             plt.title("PCR")
-            ## Step 3: Do pls regression
+            ## Do pls regression
             pls = lambda k: PLSRegression(n_components=k)
             res = do_loo_regression(pls, Xv, y)
             plt.subplot(122)
