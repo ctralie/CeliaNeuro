@@ -145,5 +145,6 @@ def do_analyses_feat(feat):
         plt.ylabel("Density")
         plt.savefig("{}_MR_{}.svg".format(feat, label), bbox_inches='tight')
 
-do_analyses_feat("WD")
-do_analyses_feat("PC")
+#do_analyses_feat("WD")
+#do_analyses_feat("PC")
+do_analyses_feat("BC")
