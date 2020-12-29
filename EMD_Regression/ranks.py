@@ -5,8 +5,9 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from EMD import *
+import os
 
-LABELS = ['EFCCN_node', 'Spelling_node', 'Naming_node', 'Syntax_node']
+LABELS = ['EFCCN_node', 'Spelling_node', 'Naming_node', 'Syntax_node', 'MD_node']
 LIDX = {LABELS[i]:i for i in range(len(LABELS))}
 PATIENT_END = -6
 
@@ -114,7 +115,7 @@ def do_permtest(df, tfn, ffn, n_perms, prefix, title):
     plt.savefig("{}_MR.svg".format(prefix), bbox_inches='tight')
     return {'emds':emds, 'emds_null':emds_null, 'mean_ranks':mean_ranks, 'mean_ranks_null':mean_ranks_null}
 
-def do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title):
+def do_analyses_split_feat(feat, tfn, ffn, n_perms, foldername, title):
     """
     Parameters
     ----------
@@ -126,11 +127,14 @@ def do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title):
         Function for extracting labels for the false class
     n_perms: int
         Number of random permutations to use as the null hypothesis
-    prefix: string
-        prefix for filenames
+    foldername: string
+        Folder to which to save the results
     title: string
         Title of plots
     """
+    if not os.path.exists(foldername):
+        os.mkdir(foldername)
+    prefix = foldername + "/" + feat
     controls = pd.read_csv("{}_controls.csv".format(feat))
     patients = pd.read_csv("{}_patients.csv".format(feat))
     controls = do_permtest(controls, tfn, ffn, n_perms, "{}_controls".format(prefix), "{} Controls".format(title))
@@ -167,24 +171,31 @@ def do_analyses_feat(feat, n_perms = 100000):
     ## to non-language nodes (omit nodes that are naming or syntax)
     ffn = lambda labels: (1-labels[:, LIDX["Spelling_node"]])*(1-labels[:, LIDX["Naming_node"]])*(1-labels[:, LIDX["Syntax_node"]])
     for node in ["Spelling", "Naming", "Syntax"]:
-        tfn = lambda labels: labels[:, LIDX["{}_node".format(node)]]*(np.sum(labels, 1) == 1)
-        prefix = feat + "_{}_nonlanguage".format(node)
+        tfn = lambda labels: labels[:, LIDX["{}_node".format(node)]]*(np.sum(labels[:, [LIDX["EFCCN_node"], LIDX["Spelling_node"], LIDX["Naming_node"], LIDX["Syntax_node"]]], 1) == 1)
+        foldername = "Results_Ranks/{}_nonlanguage".format(node)
         title = feat + " Uniquely Spelling To Non-Language"
-        do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title)
+        do_analyses_split_feat(feat, tfn, ffn, n_perms, foldername, title)
     
     ## Test 4: Compare language nodes to all other nodes
     tfn = lambda labels: np.sum(labels[:, [LIDX["Spelling_node"], LIDX["Naming_node"], LIDX["Syntax_node"]]], 1) > 0
     ffn = lambda labels: 1 - tfn(labels)
-    prefix = feat + "_language_nonlanguage"
+    foldername = "Results_Ranks/language_nonlanguage"
     title = feat + " Language vs Non-Language"
-    do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title)
+    do_analyses_split_feat(feat, tfn, ffn, n_perms, foldername, title)
 
     ## Test 5: Compare EFCCN nodes to all other nodes
     tfn = lambda labels: labels[:, LIDX["EFCCN_node"]]
     ffn = lambda labels: 1 - tfn(labels)
-    prefix = feat + "_EFCCN_nonEFCCN"
+    foldername = "Results_Ranks/EFCCN_nonEFCCN"
     title = feat + " EFCCN vs Non-EFCCN"
-    do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title)
+    do_analyses_split_feat(feat, tfn, ffn, n_perms, foldername, title)
+
+    ## Test 6: Compare MD_node to all other nodes
+    tfn = lambda labels: labels[:, LIDX["MD_node"]]
+    ffn = lambda labels: 1 - tfn(labels)
+    foldername = "Results_Ranks/MD_nonMD"
+    title = feat + " MD vs Non-MD"
+    do_analyses_split_feat(feat, tfn, ffn, n_perms, foldername, title)
 
 do_analyses_feat("WD")
 do_analyses_feat("PC")
