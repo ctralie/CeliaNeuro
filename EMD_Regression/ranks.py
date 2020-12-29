@@ -101,7 +101,7 @@ def do_permtest(df, tfn, ffn, n_perms, prefix, title):
     plt.title("EMDs of {}, NAUROC = {:.3f}".format(title, nauroc))
     plt.xlabel("Earth Movers Distance")
     plt.ylabel("Density")
-    plt.savefig("EMD_{}.svg".format(prefix), bbox_inches='tight')
+    plt.savefig("{}_EMD.svg".format(prefix), bbox_inches='tight')
 
     plt.clf()
     nauroc = 2*(getAUROC(mean_ranks, mean_ranks_null)['auroc']-0.5)
@@ -111,7 +111,7 @@ def do_permtest(df, tfn, ffn, n_perms, prefix, title):
     plt.legend()
     plt.xlabel("Mean Rank")
     plt.ylabel("Density")
-    plt.savefig("MR_{}.svg".format(prefix), bbox_inches='tight')
+    plt.savefig("{}_MR.svg".format(prefix), bbox_inches='tight')
     return {'emds':emds, 'emds_null':emds_null, 'mean_ranks':mean_ranks, 'mean_ranks_null':mean_ranks_null}
 
 def do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title):
@@ -120,6 +120,16 @@ def do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title):
     ----------
     feat: string
         Type of feature (either PD or WD)
+    tfn: function labels -> ndarray(N)
+        Function for extracting labels for the true class
+    ffn: function labels -> ndarray(N)
+        Function for extracting labels for the false class
+    n_perms: int
+        Number of random permutations to use as the null hypothesis
+    prefix: string
+        prefix for filenames
+    title: string
+        Title of plots
     """
     controls = pd.read_csv("{}_controls.csv".format(feat))
     patients = pd.read_csv("{}_patients.csv".format(feat))
@@ -152,16 +162,29 @@ def do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title):
 
 def do_analyses_feat(feat, n_perms = 100000):
     plt.figure(figsize=(8, 4))
-    ## Test 1
-    ## Compare nodes that are *uniquely* spelling (i.e., don't overlap with other networks) 
+    ## Test 1/2/3
+    ## Compare nodes that are *uniquely* spelling/naming/syntax (i.e., don't overlap with other networks) 
     ## to non-language nodes (omit nodes that are naming or syntax)
-    tfn = lambda labels: labels[:, LIDX["Spelling_node"]]*(np.sum(labels, 1) == 1)
     ffn = lambda labels: (1-labels[:, LIDX["Spelling_node"]])*(1-labels[:, LIDX["Naming_node"]])*(1-labels[:, LIDX["Syntax_node"]])
-    prefix = feat + "_spelling_nonlanguage"
-    title = feat + " Uniquely Spelling To Non-Language"
+    for node in ["Spelling", "Naming", "Syntax"]:
+        tfn = lambda labels: labels[:, LIDX["{}_node".format(node)]]*(np.sum(labels, 1) == 1)
+        prefix = feat + "_{}_nonlanguage".format(node)
+        title = feat + " Uniquely Spelling To Non-Language"
+        do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title)
+    
+    ## Test 4: Compare language nodes to all other nodes
+    tfn = lambda labels: np.sum(labels[:, [LIDX["Spelling_node"], LIDX["Naming_node"], LIDX["Syntax_node"]]], 1) > 0
+    ffn = lambda labels: 1 - tfn(labels)
+    prefix = feat + "_language_nonlanguage"
+    title = feat + " Language vs Non-Language"
     do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title)
 
-
+    ## Test 5: Compare EFCCN nodes to all other nodes
+    tfn = lambda labels: labels[:, LIDX["EFCCN_node"]]
+    ffn = lambda labels: 1 - tfn(labels)
+    prefix = feat + "_EFCCN_nonEFCCN"
+    title = feat + " EFCCN vs Non-EFCCN"
+    do_analyses_split_feat(feat, tfn, ffn, n_perms, prefix, title)
 
 do_analyses_feat("WD")
 do_analyses_feat("PC")
