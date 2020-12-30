@@ -197,6 +197,7 @@ def do_analyses_feat(feat, n_perms = 100000):
     title = feat + " MD vs Non-MD"
     do_analyses_split_feat(feat, tfn, ffn, n_perms, foldername, title)
 
-do_analyses_feat("WD")
-do_analyses_feat("PC")
-do_analyses_feat("BC")
+if __name__ == '__main__':
+    do_analyses_feat("WD")
+    do_analyses_feat("PC")
+    do_analyses_feat("BC")

@@ -13,8 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.metrics import r2_score
-
-LABELS = ['EF_node', 'Spelling_node', 'Naming_node', 'Syntax_node']
+from ranks import LABELS, LIDX
 
 # https://scikit-learn.org/dev/auto_examples/cross_decomposition/plot_pcr_vs_pls.html
 
@@ -53,98 +52,102 @@ def do_loo_regression(reg, X, y):
             y_pred = y_pred_k
     return {'rsqr':rsqr_max, 'y_pred':y_pred, 'k':k_max}
 
-def do_regressions_feat(feat):
+def do_regressions_feat(patients, ifn, var, prefix):
     """
     Parameters
     ----------
-    feat: string
-        Type of feature (either PD, WD, or BC)
+    patients: pandas dataframe
+        Data frame holding node variables for the patients
+    ifn: function labels -> ndarray(N)
+        Function for extracting labels for the nodes which are used
+        as independent variables
+    var: string
+        Dependent variable on which to regress
+    prefix: string
+        Prefix of file to which to save the figure
     """
-    plt.figure(figsize=(8, 4))
-    patients = pd.read_csv("{}_patients.csv".format(feat))
     scores = pd.read_csv("behavioral_scores.csv")
-    depvars = scores.columns[5::]
-    names = scores['patient'].to_numpy().tolist()
+    names = scores['Patient'].to_numpy().tolist()
     labels = patients[LABELS].to_numpy()
     labels[np.isnan(labels)] = 0
 
     ## Step 1: Setup independent variables
     ## by looping through all combinations of EF_node and others
-    blues = scores[scores.columns[1:5]].to_numpy()
-    plt.figure(figsize=(12, 6))
-    Xs = []
-    all_labels = []
-    # Setup independent variables for each combination of a label
-    # and EF_node, as well as the "blue variables"
-    for label in range(1, len(LABELS)):
-        X = []
-        for i, name in enumerate(names):
-            x1 = blues[i, :].tolist()
-            x2 = patients[name].to_numpy()
-            x21 = x2[labels[:, label] == 1].tolist()
-            x22 = x2[labels[:, 0] == 1].tolist()
-            X.append(x1 + x21 + x22)
-        X = np.array(X)
-        Xs.append(X)
-        all_labels.append(LABELS[label])
-    # Setup the union of all independent variables
+    orange = scores[scores.columns[1:6]].to_numpy()
+    # Setup independent variables for the union of the chosen
+    # labels, as well as the "orange variables"
     X = []
+    d = 0
     for i, name in enumerate(names):
-        x1 = blues[i, :].tolist()
-        x2 = patients[name].to_numpy().tolist()
-        X.append(x1 + x2)
+        x1 = orange[i, :].tolist()
+        if name in patients:
+            x2 = patients[name].to_numpy()
+            x2 = x2[ifn(labels) == 1].tolist()
+            X.append(x1 + x2)
+            d = len(X[-1])
+        else:
+            print("Missing ", name, prefix)
+            X.append([])
+    for i in range(len(X)):
+        if len(X[i]) == 0:
+            X[i] = np.nan*np.ones(d)
     X = np.array(X)
-    Xs.append(X)
-    all_labels.append("ALL")
 
-    ## Step 2: Perform regression on all observations with each
-    ## set of independent variables
-    for label, X in zip(all_labels, Xs):
-        XSum = np.sum(X, 1)
-        # Setup dependent variables and do regression
-        for var in depvars:
-            figpath = "{}_{}_{}.svg".format(feat, label, var)
-            if os.path.exists(figpath):
-                continue
-            y = scores[var].to_numpy()
-            # Exclude rows with NaNs (missing values) in X or y
-            idx = np.arange(y.size)
-            idx[np.isnan(y)] = -1
-            idx[np.isnan(XSum)] = -1
-            idx = idx[idx >= 0]
-            Xv = X[idx, :]
-            y = y[idx]
-            print(feat, label, var, Xv.shape[0], "subjects, ", Xv.shape[1], "indepvars")
-            
-            plt.clf()
-            ## Do pcr regression
-            pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())
-            res = do_loo_regression(pcr, Xv, y)
-            plt.subplot(121)
-            plt.scatter(res['y_pred'], y)
-            plt.legend(["$r^2={:.3f}, k={}$".format(res['rsqr'], res['k'])])
-            plt.xlabel("Predicted {}".format(var))
-            plt.ylabel("Actual {}".format(var))
-            plt.axis("equal")
-            plt.title("PCR")
-            ## Do pls regression
-            pls = lambda k: PLSRegression(n_components=k)
-            res = do_loo_regression(pls, Xv, y)
-            plt.subplot(122)
-            plt.scatter(res['y_pred'], y)
-            plt.legend(["$r^2={:.3f}, k={}$".format(res['rsqr'], res['k'])])
-            plt.xlabel("Predicted {}".format(var))
-            plt.ylabel("Actual {}".format(var))
-            plt.axis("equal")
-            plt.title("PLS")
+    ## Step 2: Perform regression on the chosen observation
+    XSum = np.sum(X, 1)
+    # Setup dependent variables and do regression
+    figpath = "Results_Regressions/" + prefix + "_vs_" + var + ".svg"
+    if os.path.exists(figpath):
+        print("Skipping", figpath)
+    else:
+        y = scores[var].to_numpy()
+        # Exclude rows with NaNs (missing values) in X or y
+        idx = np.arange(y.size)
+        idx[np.isnan(y)] = -1
+        idx[np.isnan(XSum)] = -1
+        idx = idx[idx >= 0]
+        Xv = X[idx, :]
+        y = y[idx]
+        print(prefix, var, Xv.shape[0], "subjects, ", Xv.shape[1], "indepvars")
+        
+        plt.clf()
+        ## Do pcr regression
+        pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())
+        res = do_loo_regression(pcr, Xv, y)
+        plt.subplot(121)
+        plt.scatter(res['y_pred'], y)
+        plt.legend(["$r^2={:.3f}, k={}$".format(res['rsqr'], res['k'])])
+        plt.xlabel("Predicted {}".format(var))
+        plt.ylabel("Actual {}".format(var))
+        plt.axis("equal")
+        plt.title("PCR")
+        ## Do pls regression
+        pls = lambda k: PLSRegression(n_components=k)
+        res = do_loo_regression(pls, Xv, y)
+        plt.subplot(122)
+        plt.scatter(res['y_pred'], y)
+        plt.legend(["$r^2={:.3f}, k={}$".format(res['rsqr'], res['k'])])
+        plt.xlabel("Predicted {}".format(var))
+        plt.ylabel("Actual {}".format(var))
+        plt.axis("equal")
+        plt.title("PLS")
+        plt.suptitle("{} => {} : {} subj {} indvars".format(prefix, var, Xv.shape[0], Xv.shape[1]))
+        plt.savefig(figpath)
 
-            varnames = "{} + EF_NODE".format(label)
-            if label == "ALL":
-                varnames = "ALL"
-            plt.suptitle("{}, {} : {}, {} subj {} indvars".format(feat, varnames, var, Xv.shape[0], Xv.shape[1]))
+def do_regressions():
+    plt.figure(figsize=(12, 6))
+    for stat in ["WD", "PC", "BC"]:
+        patients = pd.read_csv("{}_patients.csv".format(stat))
+        ## Group 1: Regressions on language nodes to their corresponding tests
+        for (var, label) in [("SpellingPALPA40", "Spelling_node"), ("NamingNNB", "Naming_node"), ("SentprocNAVS", "Syntax_node")]:
+            # First do just node type by itself
+            ifn = lambda labels: labels[:, LIDX[label]]
+            prefix = stat + "_" + label
+            do_regressions_feat(patients, ifn, var, prefix)
+            # Now use the node type and EFCNN
+            ifn = lambda labels: labels[:, LIDX[label]] + labels[:, LIDX["EFCCN_node"]] > 0
+            prefix = stat + "_EFCCN+" + label
+            do_regressions_feat(patients, ifn, var, prefix)
 
-            plt.savefig(figpath)
-
-do_regressions_feat("WD")
-do_regressions_feat("PC")
-do_regressions_feat("BC")
+if __name__ == '__main__':
+    do_regressions()
