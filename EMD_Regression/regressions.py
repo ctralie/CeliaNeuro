@@ -161,12 +161,12 @@ def do_regressions():
             patients = pd.read_csv("{}_{}.csv".format(stat, typ))
             # Spelling/naming/syntax/efccn vs TxEffect_train_z and TxEffect_gen_z
             ifn = lambda labels: np.sum(labels[:, [LIDX[s+"_node"] for s in ["Spelling", "Naming", "Syntax", "EFCCN"]]], 1) > 0
-            prefix = stat + "_Spelling+Naming+Syntax+EFCCN"
+            prefix = stat + "_" + typ + "_Spelling+Naming+Syntax+EFCCN"
             do_regressions_feat(patients, ifn, "TxEffect_train_z", prefix)
             do_regressions_feat(patients, ifn, "TxEffect_gen_z", prefix)
             # Spelling/naming/syntax vs TxEffect_train_z and TxEffect_gen_z
             ifn = lambda labels: np.sum(labels[:, [LIDX[s+"_node"] for s in ["Spelling", "Naming", "Syntax"]]], 1) > 0
-            prefix = stat + "_Spelling+Naming+Syntax"
+            prefix = stat + "_" + typ + "_Spelling+Naming+Syntax"
             do_regressions_feat(patients, ifn, "TxEffect_train_z", prefix)
             do_regressions_feat(patients, ifn, "TxEffect_gen_z", prefix)
 
