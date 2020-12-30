@@ -80,6 +80,10 @@ def do_regressions_feat(patients, ifn, var, prefix):
     d = 0
     for i, name in enumerate(names):
         x1 = orange[i, :].tolist()
+        for key in patients.keys():
+            # Sometimes the names in the nodes have extra stuff on the end
+            if name in key:
+                name = key
         if name in patients:
             x2 = patients[name].to_numpy()
             x2 = x2[ifn(labels) == 1].tolist()
@@ -122,7 +126,7 @@ def do_regressions_feat(patients, ifn, var, prefix):
         plt.axis("equal")
         plt.title("PCR")
         ## Do pls regression
-        pls = lambda k: PLSRegression(n_components=k)
+        pls = lambda k: make_pipeline(StandardScaler(), PLSRegression(n_components=k))
         res = do_loo_regression(pls, Xv, y)
         plt.subplot(122)
         plt.scatter(res['y_pred'], y)
@@ -148,6 +152,24 @@ def do_regressions():
             ifn = lambda labels: labels[:, LIDX[label]] + labels[:, LIDX["EFCCN_node"]] > 0
             prefix = stat + "_EFCCN+" + label
             do_regressions_feat(patients, ifn, var, prefix)
+        ## Group 2: EFComposite_BDS
+        ifn = lambda labels: labels[:, LIDX["EFCCN_node"]]
+        prefix = stat + "_EFCCN"
+        do_regressions_feat(patients, ifn, "EFComposite_BDSnorm", prefix)
+        ## Group 3: TxEffect groups
+        for typ in ["patients", "prepost"]:
+            patients = pd.read_csv("{}_{}.csv".format(stat, typ))
+            # Spelling/naming/syntax/efccn vs TxEffect_train_z and TxEffect_gen_z
+            ifn = lambda labels: np.sum(labels[:, [LIDX[s+"_node"] for s in ["Spelling", "Naming", "Syntax", "EFCCN"]]], 1) > 0
+            prefix = stat + "_Spelling+Naming+Syntax+EFCCN"
+            do_regressions_feat(patients, ifn, "TxEffect_train_z", prefix)
+            do_regressions_feat(patients, ifn, "TxEffect_gen_z", prefix)
+            # Spelling/naming/syntax vs TxEffect_train_z and TxEffect_gen_z
+            ifn = lambda labels: np.sum(labels[:, [LIDX[s+"_node"] for s in ["Spelling", "Naming", "Syntax"]]], 1) > 0
+            prefix = stat + "_Spelling+Naming+Syntax"
+            do_regressions_feat(patients, ifn, "TxEffect_train_z", prefix)
+            do_regressions_feat(patients, ifn, "TxEffect_gen_z", prefix)
+
 
 if __name__ == '__main__':
     do_regressions()
