@@ -67,7 +67,7 @@ def do_regressions_feat(patients, ifn, var, prefix):
         Prefix of file to which to save the figure
     """
     scores = pd.read_csv("behavioral_scores.csv")
-    names = scores['Patient'].to_numpy().tolist()
+    names = scores['patient'].to_numpy().tolist()
     labels = patients[LABELS].to_numpy()
     labels[np.isnan(labels)] = 0
 
@@ -76,8 +76,7 @@ def do_regressions_feat(patients, ifn, var, prefix):
     orange = scores[scores.columns[1:6]].to_numpy()
     # Setup independent variables for the union of the chosen
     # labels, as well as the "orange variables"
-    X = []
-    d = 0
+    X = np.array([])
     for i, name in enumerate(names):
         x1 = orange[i, :].tolist()
         for key in patients.keys():
@@ -87,16 +86,12 @@ def do_regressions_feat(patients, ifn, var, prefix):
         if name in patients:
             x2 = patients[name].to_numpy()
             x2 = x2[ifn(labels) == 1].tolist()
-            X.append(x1 + x2)
-            d = len(X[-1])
+            x = x1 + x2
+            if X.size == 0:
+                X = np.nan*np.ones((len(names), len(x)))
+            X[i, :] = np.array(x)
         else:
             print("Missing ", name, prefix)
-            X.append([])
-    for i in range(len(X)):
-        if len(X[i]) == 0:
-            X[i] = np.nan*np.ones(d)
-    X = np.array(X)
-
     ## Step 2: Perform regression on the chosen observation
     XSum = np.sum(X, 1)
     # Setup dependent variables and do regression
@@ -107,13 +102,12 @@ def do_regressions_feat(patients, ifn, var, prefix):
         y = scores[var].to_numpy()
         # Exclude rows with NaNs (missing values) in X or y
         idx = np.arange(y.size)
-        idx[np.isnan(y)] = -1
-        idx[np.isnan(XSum)] = -1
+        idx[np.isnan(XSum) + np.isnan(y)] = -1
         idx = idx[idx >= 0]
         Xv = X[idx, :]
         y = y[idx]
         print(prefix, var, Xv.shape[0], "subjects, ", Xv.shape[1], "indepvars")
-        
+
         plt.clf()
         ## Do pcr regression
         pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())

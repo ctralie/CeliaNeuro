@@ -8,6 +8,7 @@ from EMD import *
 import os
 
 LABELS = ['EFCCN_node', 'Spelling_node', 'Naming_node', 'Syntax_node', 'MD_node']
+#LABELS = ['Spelling_node', 'Naming_node', 'Syntax_node', 'EF_node']
 LIDX = {LABELS[i]:i for i in range(len(LABELS))}
 PATIENT_END = -6
 
