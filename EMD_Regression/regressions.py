@@ -52,7 +52,43 @@ def do_loo_regression(reg, X, y):
             y_pred = y_pred_k
     return {'rsqr':rsqr_max, 'y_pred':y_pred, 'k':k_max}
 
-def do_regressions_feat(patients, ifn, var, prefix):
+def do_monte_carlo_regression(X1, XAll, Xv, y, idx, reg, monte_iters):
+    """
+    Pick out random sets of independent variables (in addition to the common 4 independent variables)
+    to create a regression of the same size, and compute rsquared for many iterations of this
+    Parameters
+    ----------
+    X1: ndarray(N, 4)
+        Common independent variables
+    XAll: ndarray(N, K)
+        All other independent variables
+    Xv: ndarray(N2, M)
+        Ground truth array of independent variables
+    y: ndarray(N2)
+        Dependent variables
+    idx: ndarray(N2)
+        Indices into the original set of patients of which patients
+        are included in this regression
+    reg: fn: k -> sklearn pipeline
+        Regression handle
+    monte_iters: int
+        Number of monte carlo iterations
+    """
+    rsqrs = np.zeros(monte_iters)
+    M2 = Xv.shape[1] - X1.shape[1]
+    X1 = X1[idx, :]
+    for i in range(monte_iters):
+        if i%10 == 0:
+            print("Monte carlo {} of {}".format(i, monte_iters))
+        idx2 = np.random.permutation(XAll.shape[1])[0:M2]
+        X2 = XAll[idx, :]
+        X2 = X2[:, idx2]
+        X = np.concatenate((X1, X2), axis=1)
+        rsqrs[i] = do_loo_regression(reg, X, y)['rsqr']
+    return rsqrs
+    
+
+def do_regressions_feat(patients, ifn, var, prefix, fout, monte_iters = 100, do_plots=True):
     """
     Parameters
     ----------
@@ -65,6 +101,10 @@ def do_regressions_feat(patients, ifn, var, prefix):
         Dependent variable on which to regress
     prefix: string
         Prefix of file to which to save the figure
+    fout: file handle
+        Handle to file to which to output results in csv format
+    monte_iters: int
+        Number of monte carlo iterations
     """
     scores = pd.read_csv("behavioral_scores.csv")
     names = scores['patient'].to_numpy().tolist()
@@ -73,18 +113,22 @@ def do_regressions_feat(patients, ifn, var, prefix):
 
     ## Step 1: Setup independent variables
     ## by looping through all combinations of EF_node and others
-    orange = scores[scores.columns[1:6]].to_numpy()
+    X1 = scores[scores.columns[1:5]].to_numpy()
     # Setup independent variables for the union of the chosen
     # labels, as well as the "orange variables"
     X = np.array([])
+    XAll = np.array([])
     for i, name in enumerate(names):
-        x1 = orange[i, :].tolist()
+        x1 = X1[i, :].tolist()
         for key in patients.keys():
             # Sometimes the names in the nodes have extra stuff on the end
             if name in key:
                 name = key
         if name in patients:
             x2 = patients[name].to_numpy()
+            if XAll.size == 0:
+                XAll = np.nan*np.ones((len(names), x2.size))
+            XAll[i, :] = x2
             x2 = x2[ifn(labels) == 1].tolist()
             x = x1 + x2
             if X.size == 0:
@@ -95,34 +139,45 @@ def do_regressions_feat(patients, ifn, var, prefix):
     ## Step 2: Perform regression on the chosen observation
     XSum = np.sum(X, 1)
     # Setup dependent variables and do regression
-    figpath = "Results_Regressions/" + prefix + "_vs_" + var + ".svg"
-    if os.path.exists(figpath):
-        print("Skipping", figpath)
-    else:
-        y = scores[var].to_numpy()
-        # Exclude rows with NaNs (missing values) in X or y
-        idx = np.arange(y.size)
-        idx[np.isnan(XSum) + np.isnan(y)] = -1
-        idx = idx[idx >= 0]
-        Xv = X[idx, :]
-        y = y[idx]
-        print(prefix, var, Xv.shape[0], "subjects, ", Xv.shape[1], "indepvars")
+    y = scores[var].to_numpy()
+    # Exclude rows with NaNs (missing values) in X or y
+    idx = np.arange(y.size)
+    idx[np.isnan(XSum) + np.isnan(y)] = -1
+    idx = idx[idx >= 0]
+    Xv = X[idx, :]
+    y = y[idx]
+    print(prefix, var, Xv.shape[0], "subjects, ", Xv.shape[1], "indepvars")
+    fout.write("{},{},{},{},{},".format(prefix[0:2], prefix[3::], var, Xv.shape[0], Xv.shape[1]))
 
+    figpath = "Results_Regressions/" + prefix + "_vs_" + var + ".svg"
+    ## Do pcr regression
+    pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())
+    res = do_loo_regression(pcr, Xv, y)
+    rsqrs = do_monte_carlo_regression(X1, XAll, Xv, y, idx, pcr, monte_iters)
+    fout.write("{:.3f},{},{:.3f},{:.3f},".format(res['rsqr'], res['k'], np.mean(rsqrs), np.std(rsqrs)))
+    if do_plots:
         plt.clf()
-        ## Do pcr regression
-        pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())
-        res = do_loo_regression(pcr, Xv, y)
-        plt.subplot(121)
+        plt.subplot(221)
         plt.scatter(res['y_pred'], y)
         plt.legend(["$r^2={:.3f}, k={}$".format(res['rsqr'], res['k'])])
         plt.xlabel("Predicted {}".format(var))
         plt.ylabel("Actual {}".format(var))
         plt.axis("equal")
         plt.title("PCR")
-        ## Do pls regression
-        pls = lambda k: make_pipeline(StandardScaler(), PLSRegression(n_components=k))
-        res = do_loo_regression(pls, Xv, y)
-        plt.subplot(122)
+        plt.subplot(223)
+        plt.hist(rsqrs)
+        plt.xlabel("$R^2$")
+        plt.ylabel("Counts")
+        plt.title("PCR Monte Carlo")
+
+
+    ## Do pls regression
+    pls = lambda k: make_pipeline(StandardScaler(), PLSRegression(n_components=k))
+    res = do_loo_regression(pls, Xv, y)
+    rsqrs = do_monte_carlo_regression(X1, XAll, Xv, y, idx, pcr, monte_iters)
+    fout.write("{:.3f},{},{:.3f},{:.3f}\n".format(res['rsqr'], res['k'], np.mean(rsqrs), np.std(rsqrs)))
+    if do_plots:
+        plt.subplot(222)
         plt.scatter(res['y_pred'], y)
         plt.legend(["$r^2={:.3f}, k={}$".format(res['rsqr'], res['k'])])
         plt.xlabel("Predicted {}".format(var))
@@ -130,22 +185,31 @@ def do_regressions_feat(patients, ifn, var, prefix):
         plt.axis("equal")
         plt.title("PLS")
         plt.suptitle("{} => {} : {} subj {} indvars".format(prefix, var, Xv.shape[0], Xv.shape[1]))
+        plt.subplot(224)
+        plt.hist(rsqrs)
+        plt.xlabel("$R^2$")
+        plt.ylabel("Counts")
+        plt.title("PLS Monte Carlo")
         plt.savefig(figpath)
 
 def do_regressions():
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 12))
+    fout = open("Results_Regressions/results.csv", "w")
+    fout.write("{},{},{},{},{},{},{},{},{},{},{},{},{}\n".format("Graph Statistic", "Independent Variables", "Dependent Variable", "Num Subjects", "Num Indep Variables", "PCR R2", "PCR K", "PCR Mean R2", "PCR STDev R2", "PLS R2", "PLS K", "PLS Mean R2", "PLS STDev R2"))
     for stat in ["WD", "PC", "BC"]:
         patients = pd.read_csv("{}_patients.csv".format(stat))
         ## Group 1: Regressions on language nodes to their corresponding tests
-        for (var, label) in [("SpellingPALPA40", "Spelling_node"), ("NamingNNB", "Naming_node"), ("SentprocNAVS", "Syntax_node")]:
-            # First do just node type by itself
-            ifn = lambda labels: labels[:, LIDX[label]]
-            prefix = stat + "_" + label
-            do_regressions_feat(patients, ifn, var, prefix)
-            # Now use the node type and EFCNN
-            ifn = lambda labels: labels[:, LIDX[label]] + labels[:, LIDX["EFCCN_node"]] > 0
-            prefix = stat + "_EFCCN+" + label
-            do_regressions_feat(patients, ifn, var, prefix)
+        for executive in ["EFCCN", "MD"]:
+            for (var, label) in [("SpellingTrain_prepostPMG", "Spelling_node"), ("SpellingGen_prepostPMG", "Spelling_node"), ("NamingTrain_prepost", "Naming_node"), ("NamingGen_prepost", "Naming_node"), ("SentprocTrain_prepost", "Syntax_node"), ("SentprocGen_prepost", "Syntax_node")]:
+                # First do just node type by itself
+                ifn = lambda labels: labels[:, LIDX[label]]
+                prefix = stat + "_" + label
+                do_regressions_feat(patients, ifn, var, prefix, fout)
+                # Now use the node type and EFCNN
+                ifn = lambda labels: labels[:, LIDX[label]] + labels[:, LIDX["{}_node".format(executive)]] > 0
+                prefix = stat + "_"+executive+"+" + label
+                do_regressions_feat(patients, ifn, var, prefix, fout)
+        """
         ## Group 2: EFComposite_BDS
         ifn = lambda labels: labels[:, LIDX["EFCCN_node"]]
         prefix = stat + "_EFCCN"
@@ -163,7 +227,8 @@ def do_regressions():
             prefix = stat + "_" + typ + "_Spelling+Naming+Syntax"
             do_regressions_feat(patients, ifn, "TxEffect_train_z", prefix)
             do_regressions_feat(patients, ifn, "TxEffect_gen_z", prefix)
-
+        """
+    fout.close()
 
 if __name__ == '__main__':
     do_regressions()
