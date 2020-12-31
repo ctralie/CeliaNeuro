@@ -5,6 +5,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+from sys import argv
 
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
@@ -88,7 +89,7 @@ def do_monte_carlo_regression(X1, XAll, Xv, y, idx, reg, monte_iters):
     return rsqrs
     
 
-def do_regressions_feat(patients, ifn, var, prefix, fout, monte_iters = 100, do_plots=True):
+def do_regressions_feat(patients, ifn, var, prefix, fout, monte_iters = 5000, do_plots=True):
     """
     Parameters
     ----------
@@ -154,7 +155,8 @@ def do_regressions_feat(patients, ifn, var, prefix, fout, monte_iters = 100, do_
     pcr = lambda k: make_pipeline(StandardScaler(), PCA(n_components=k), LinearRegression())
     res = do_loo_regression(pcr, Xv, y)
     rsqrs = do_monte_carlo_regression(X1, XAll, Xv, y, idx, pcr, monte_iters)
-    fout.write("{:.3f},{},{:.3f},{:.3f},".format(res['rsqr'], res['k'], np.mean(rsqrs), np.std(rsqrs)))
+    p = np.sum(rsqrs >= res['rsqr'])/monte_iters
+    fout.write("{:.3f},{},{:.3f},".format(res['rsqr'], res['k'], p))
     if do_plots:
         plt.clf()
         plt.subplot(221)
@@ -165,17 +167,19 @@ def do_regressions_feat(patients, ifn, var, prefix, fout, monte_iters = 100, do_
         plt.axis("equal")
         plt.title("PCR")
         plt.subplot(223)
-        plt.hist(rsqrs)
+        h = plt.hist(rsqrs)
+        plt.stem([res['rsqr']], [np.max(h[0])], use_line_collection=True)
         plt.xlabel("$R^2$")
         plt.ylabel("Counts")
-        plt.title("PCR Monte Carlo")
+        plt.title("PCR Monte Carlo (p = {:.3f})".format(p))
 
 
     ## Do pls regression
     pls = lambda k: make_pipeline(StandardScaler(), PLSRegression(n_components=k))
     res = do_loo_regression(pls, Xv, y)
     rsqrs = do_monte_carlo_regression(X1, XAll, Xv, y, idx, pcr, monte_iters)
-    fout.write("{:.3f},{},{:.3f},{:.3f}\n".format(res['rsqr'], res['k'], np.mean(rsqrs), np.std(rsqrs)))
+    p = np.sum(rsqrs >= res['rsqr'])/monte_iters
+    fout.write("{:.3f},{},{:.3f}\n".format(res['rsqr'], res['k'], p))
     if do_plots:
         plt.subplot(222)
         plt.scatter(res['y_pred'], y)
@@ -186,29 +190,33 @@ def do_regressions_feat(patients, ifn, var, prefix, fout, monte_iters = 100, do_
         plt.title("PLS")
         plt.suptitle("{} => {} : {} subj {} indvars".format(prefix, var, Xv.shape[0], Xv.shape[1]))
         plt.subplot(224)
-        plt.hist(rsqrs)
+        h = plt.hist(rsqrs)
+        plt.stem([res['rsqr']], [np.max(h[0])], use_line_collection=True)
         plt.xlabel("$R^2$")
         plt.ylabel("Counts")
-        plt.title("PLS Monte Carlo")
+        plt.title("PLS Monte Carlo (p = {:.3f})".format(p))
         plt.savefig(figpath)
 
-def do_regressions():
+def do_regressions(batch):
     plt.figure(figsize=(12, 12))
-    fout = open("Results_Regressions/results.csv", "w")
-    fout.write("{},{},{},{},{},{},{},{},{},{},{},{},{}\n".format("Graph Statistic", "Independent Variables", "Dependent Variable", "Num Subjects", "Num Indep Variables", "PCR R2", "PCR K", "PCR Mean R2", "PCR STDev R2", "PLS R2", "PLS K", "PLS Mean R2", "PLS STDev R2"))
-    for stat in ["WD", "PC", "BC"]:
+    fout = open("Results_Regressions/results{}.csv".format(batch), "w")
+    fout.write("{},{},{},{},{},{},{},{},{},{},{}\n".format("Graph Statistic", "Independent Variables", "Dependent Variable", "Num Subjects", "Num Indep Variables", "PCR R2", "PCR K", "PCR p-value", "PLS R2", "PLS K", "PLS p-value"))
+    for stat in ["PC", "BC", "WD"]:
+        i = 0
         patients = pd.read_csv("{}_patients.csv".format(stat))
         ## Group 1: Regressions on language nodes to their corresponding tests
-        for executive in ["EFCCN", "MD"]:
-            for (var, label) in [("SpellingTrain_prepostPMG", "Spelling_node"), ("SpellingGen_prepostPMG", "Spelling_node"), ("NamingTrain_prepost", "Naming_node"), ("NamingGen_prepost", "Naming_node"), ("SentprocTrain_prepost", "Syntax_node"), ("SentprocGen_prepost", "Syntax_node")]:
+        for (var, label) in [("SpellingTrain_prepostPMG", "Spelling_node"), ("SpellingGen_prepostPMG", "Spelling_node"), ("NamingTrain_prepost", "Naming_node"), ("NamingGen_prepost", "Naming_node"), ("SentprocTrain_prepost", "Syntax_node"), ("SentprocGen_prepost", "Syntax_node")]:
+            if i == batch:
                 # First do just node type by itself
                 ifn = lambda labels: labels[:, LIDX[label]]
                 prefix = stat + "_" + label
                 do_regressions_feat(patients, ifn, var, prefix, fout)
-                # Now use the node type and EFCNN
-                ifn = lambda labels: labels[:, LIDX[label]] + labels[:, LIDX["{}_node".format(executive)]] > 0
-                prefix = stat + "_"+executive+"+" + label
-                do_regressions_feat(patients, ifn, var, prefix, fout)
+                for executive in ["EFCCN", "MD"]:
+                    # Now use the node type and EFCNN
+                    ifn = lambda labels: labels[:, LIDX[label]] + labels[:, LIDX["{}_node".format(executive)]] > 0
+                    prefix = stat + "_"+executive+"+" + label
+                    do_regressions_feat(patients, ifn, var, prefix, fout)
+            i += 1
         """
         ## Group 2: EFComposite_BDS
         ifn = lambda labels: labels[:, LIDX["EFCCN_node"]]
@@ -231,4 +239,4 @@ def do_regressions():
     fout.close()
 
 if __name__ == '__main__':
-    do_regressions()
+    do_regressions(int(argv[1]))
