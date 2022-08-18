@@ -91,7 +91,7 @@ def arclen_resample(X, s, N):
     return Y
 
 
-def get_zcs(Curvs):
+def get_zcs(Curvs, loop=False):
     """
     Get zero crossings estimates from all curvature/torsion
     measurements by using the dot product
@@ -109,6 +109,9 @@ def get_zcs(Curvs):
     """
     Crossings = []
     for C in Curvs:
+        if loop:
+            CLast = C[0, :]
+            C = np.concatenate((C, CLast[None, :]), axis=0)
         dots = np.sum(C[0:-1, :]*C[1::, :], 1)
         cross = np.arange(len(dots))
         cross = cross[dots < 0]
@@ -149,11 +152,70 @@ def get_scale_space_images(X, MaxOrder, sigmas, loop, n_arclen=-1):
             s = get_arclen(Curvs[1])
             for k, C in enumerate(Curvs):
                 Curvs[k] = arclen_resample(C, s, n_arclen)
-        Crossings = get_zcs(Curvs[1::])
+        Crossings = get_zcs(Curvs[1::], loop)
         for i in range(MaxOrder):
             if len(Crossings[i]) > 0:
                 SSImages[i][j, Crossings[i]] = 1.0
     return SSImages
+
+def get_rescaled_scale_space_images(X, MaxOrder, sigma, loop, N):
+    """
+    Return the curvature scale space images for a sampled spacecurve
+    Parameters
+    ----------
+    X: ndarray(N, d)
+        An N x d matrix of points in R^d
+    MaxOrder: int
+        The maximum order of torsion to compute (e.g. 3 for position, velocity, and curvature, and torsion)
+    sigmas: float
+        Standard deviation of each smoothing
+    loop: boolean
+        Whether to treat this trajectory as a topological loop (i.e. add an edge between first and last point)
+    N: int
+        How many point resample by arclength at each iteration
+
+    Returns
+    -------
+    SSImages: list of ndarray(M, N)
+        A list of scale space images for each curvature order
+    """
+    N = X.shape[0]
+    SSImages = [[] for i in range(MaxOrder)]
+    finished = False
+    counter = 0
+    while not finished and counter < 1000:
+        counter += 1
+        Curvs = get_curv_vectors(X, MaxOrder, sigma, loop)
+        s = get_arclen(Curvs[1])
+        for k, C in enumerate(Curvs):
+            Curvs[k] = arclen_resample(C, s, N)
+        Crossings = get_zcs(Curvs[1::], loop)
+        finished = True
+        for i in range(MaxOrder):
+            if len(Crossings[i]) > 0:
+                if i > 0:
+                    finished = False
+                x = np.zeros(N)
+                x[Crossings[i]] = 1.0
+                SSImages[i].append(x)
+        X = Curvs[0] # Reuse next time
+    for i in range(len(SSImages)):
+        SSImages[i] = np.array(SSImages[i])
+    return SSImages, X
+
+def get_scale_space_edt(X, scalespacefn):
+    from scipy.ndimage.morphology import distance_transform_edt
+    sigmas = np.linspace(1, 150, 400)
+    S = scalespacefn(X)
+    N = S.shape[1]
+    S = np.concatenate((S, S), axis=1)
+    SEDT = distance_transform_edt(1-S)
+    i1 = int(N/2)
+    i2 = N + i1
+    S = S[:, i1:i2]
+    SEDT = SEDT[:, i1:i2]
+    return SEDT
+
 
 class CSSAnimator(animation.FuncAnimation):
     """
@@ -207,7 +269,7 @@ class CSSAnimator(animation.FuncAnimation):
 
     def _draw_frame(self, i):
         Curvs = get_curv_vectors(self.X, 2, self.sigmas[i], loop = self.loop)
-        Crossings = get_zcs(Curvs)
+        Crossings = get_zcs(Curvs, self.loop)
         XSmooth = Curvs[0]
         Curv = Curvs[2]
         CurvMag = np.sqrt(np.sum(Curv**2, 1)).flatten()
